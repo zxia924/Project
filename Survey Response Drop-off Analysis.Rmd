@@ -1,0 +1,890 @@
+---
+title: "Survey Response Drop-off Analysis"
+author: "Zexin Xia"
+date: "6/23/2017"
+output: html_document
+---
+
+```{r message=FALSE, warning=FALSE}
+# Load packages.
+library(dplyr)
+library(ggplot2)
+library(gridExtra)
+library(data.table)
+```
+
+```{r}
+# Define colors for visualization
+ciBlue <- "#11A7A5"
+ciOrange <- "#F7931E"
+```
+
+```{r}
+##############
+# SJDD Panel #
+##############
+
+# Import the sjdd dataset.
+sjdd <- read.csv("SJC_DDsurvey.csv")
+
+# Substitute "" and NULL entries in the dataset with "NA"
+sjdd[sjdd==""] <- NA
+sjdd[sjdd=="NULL"] <- NA
+```
+
+```{r}
+##################################################
+# Respondents with no home internet subscription #
+##################################################
+
+# Import the sjdd_nhi dataset.
+sjdd_nhi <- read.csv("Cleaned_Nointernet.csv")
+
+# Substitute "" and NULL entries in the dataset with "NA".
+sjdd_nhi[sjdd_nhi==""] <- NA
+sjdd_nhi[sjdd_nhi=="NULL"] <- NA
+```
+
+```{r message=FALSE, warning=FALSE}
+# Update columns in sjdd with the same columns present in sjdd_nhi.
+cols <- setdiff(colnames(sjdd_nhi), "phone_number")
+setDT(sjdd)[setDT(sjdd_nhi), (cols) := mget(paste0('i.', cols)), on = "phone_number"]
+```
+
+```{r}
+####################################
+# Respondents from Recruiters (RR) #
+####################################
+
+# Import the Recruited dataset.
+Recruited <- read.csv("Recruited.csv")
+
+# Convert dataframe to datatable.
+sjdd_dt <- data.table(sjdd)
+Recruited_dt <- data.table(Recruited)
+
+# Check to see which respondents in Recruited are also present in sjddand store the result 
+# in sjdd_recruited.
+sjdd_recruited <- sjdd[which(sjdd$phone_number %in% Recruited$phone_number)]
+#sjdd_recruited <- sjdd[phone_number %in% Recruited$phone_number,phone_number]
+```
+
+```{r}
+####################
+# RR with Internet #
+####################
+
+# Subset sjdd_recruited to get a dataframe containing columns corresponding to respondents 
+# with internet.
+sjdd_YesInt_df <- select(sjdd_recruited, 
+                       one_of(c("phone_number","lang_cat","num_child_txt","homeInternet_cat",
+                                "child_device_most_used_cat","child_device_2nd_used_cat",
+                                "child_homework_device_cat","child_device_work_cat", 
+                                "child_comm_ppl_cat","child_2nd_comm_ppl_cat",
+                                "con_big_child_cat","con_2nd_big_child_cat",
+                                "child_internet_access_home_cat","pars_inter_ppl_cat",
+                                "pars_2nd_inter_ppl_cat","pars_access_internet_home_cat",
+                                "pars_internet_work_cat","why_mobile_cat",
+                                "zipcode_txt","income_cat","affordable_housing_cat",
+                                "ppl_house_txt","gender_cat","race_cat","birth_year_txt",
+                                "future_survey_cat")))
+
+# Subset sjdd_YesInt_df to get a datatable containing rows corresponding to 
+# respondents with internet.
+sjdd_Y_df <- data.table(subset(sjdd_YesInt_df, sjdd_YesInt_df$homeInternet_cat == "Y"))
+
+# Show the dimension and first few rows of the data.
+dim(sjdd_Y_df)
+head(sjdd_Y_df)
+```
+
+```{r fig.width=8.5, fig.height=10}
+##########################################################
+# Number of questions completed vs Number of Respondents #
+##########################################################
+
+# Return 1 for all non-NA values in each column and 0 otherwise, then store the result
+# in sjdd_Y_non_df grouped by phone_number.
+sjdd_Y_non_na <- sjdd_Y_df %>% 
+  group_by(phone_number) %>%   
+  summarise_each(funs(sum(!is.na(.)))) 
+
+# Converting sjdd_Y_non_na to datatable.
+sjdd_Y_non_na_dt <- data.table(sjdd_Y_non_na)
+
+# Sum the number of 1's in each row (excluding the key column) and store the result
+# in Y_response_count, then add a new column called "Phone" to the datatable using the
+# phone_number column from sjdd-Y_non_na_dt.
+Y_response_count <- data.table(rowSums(sjdd_Y_non_na_dt[,-1])) %>%
+  mutate(Phone = sjdd_Y_non_na_dt[,phone_number]) 
+
+# Converting to datatable.
+Y_response_count <- data.table(Y_response_count)
+
+# Creating storage dataframe.
+totalQ <- max(Y_response_count$V1)
+responseCountByQ <- data.table(q = 1:totalQ, numResponses = rep(0,totalQ))
+
+# Loop over the storage dataframe.
+for(i in 1:totalQ){
+  responseCountByQ[q==i, numResponses:= Y_response_count[V1>=i, .N]]
+}
+
+# Plot Number of questions responded vs Number of Respondents using geom_line.
+sjdd_g1 <- ggplot(data = responseCountByQ, aes(x = q, y = numResponses)) +
+  geom_line(color = ciBlue) +
+  geom_point()+
+  theme_bw() +
+  scale_x_continuous(breaks = seq(1,24,by = 2), limits = c(1,24)) +
+  scale_y_continuous(breaks = seq(0,500,by = 50), limits = c(0,500)) +
+  ggtitle("Drop-off Analysis for SJDD Survey \n(Respondents from Recruiter with Internet)") +
+  xlab("Number of Questions Responded") +
+  ylab("Number of Respondents") +
+  theme(plot.title = element_text(family = "Trebuchet MS", 
+                                  color = ciOrange, 
+                                  face = "bold", 
+                                  size = 10, 
+                                  hjust = 0.5))
+```
+
+```{r fig.width=8.5, fig.height=10}
+############################################
+# Question Number vs Number of Respondents #
+############################################
+
+# Return 1 for all non-NA values in each column and 0 otherwise, then store the result
+# in sjdd_N_order_non_na grouped by phone_number.
+sjdd_Y_order_non_na <- sjdd_Y_df %>% 
+  group_by(phone_number) %>%   
+  summarise_each(funs(sum(!is.na(.)))) 
+
+# Sum the number of 1's in each column (excluding the key column) and store the result
+# in sirum_order_response_count, then add a new column called "Quesiton" to the datatable.
+sjdd_Y_order_response_count <- data.table(colSums(sjdd_Y_order_non_na[,-1])) %>%
+  mutate(Question = seq(from=1, to=25, by=1)) 
+
+# Plot Question Number against Number of Respondents using geom_line.
+sjdd_g2 <- ggplot(data = sjdd_Y_order_response_count, aes(x = Question, y = V1)) +
+  geom_line(color = ciBlue) +
+  theme_bw()+
+  scale_x_continuous(breaks = seq(1,25,by = 2), limits = c(1,25)) +
+  scale_y_continuous(breaks = seq(0,500,by = 50), limits = c(0,500)) +
+  ggtitle(paste("Number of Response on each Survey Question \n(Respondents from Recruiter with Internet)")) +
+  xlab("Question Number") +
+  ylab("Number of Response") +
+  theme(plot.title = element_text(family = "Trebuchet MS", 
+                                  color = ciOrange, 
+                                  face = "bold", 
+                                  size = 10, 
+                                  hjust = 0.5))
+```
+
+```{r}
+#Arrange the two plots side by side.
+grid.arrange(sjdd_g1,sjdd_g2, ncol = 2)
+```
+
+```{r}
+#######################
+# RR with no Internet #
+#######################
+
+# Subset sjdd_recruited to get a dataframe containing columns corresponding to respondents 
+# with no internet.
+sjdd_NoInt_df <- select(sjdd_recruited,
+                     one_of(c("phone_number","lang_cat","num_child_txt","homeInternet_cat",
+                              "benefit_internet_cat","internet_bar_top_cat",
+                              "internet_bar_2nd_top_cat","nhi_pars_inter_ppl_cat",
+                              "nhi_pars_2nd_inter_ppl_cat","internet_away_home_cat",
+                              "nhi_child_comm_ppl_cat","nhi_child_2nd_comm_ppl_cat",
+                              "child_where_access_cat","nhi_con_big_child_cat",
+                              "nhi_con_2nd_big_child_cat","trust_signup_cat",
+                              "trust_signup_2nd_cat","most_afford_internet_cat",
+                              "bar_signup_top_cat","bar_signup_2nd_cat",
+                              "nhi_zipcode_txt","nhi_income_cat","nhi_affordable_housing_cat",
+                              "nhi_ppl_house_txt","nhi_gender_cat","nhi_race_cat",
+                              "nhi_birth_year_txt","nhi_future_survey_cat")))
+
+# Subset sjdd_NoInt_df to get a datatable containing rows corresponding to 
+# respondents with internet.
+sjdd_N_df <- data.table(subset(sjdd_NoInt_df, sjdd_NoInt_df$homeInternet_cat == "N"))
+
+# Show the dimension and first few rows of the data.
+dim(sjdd_N_df)
+head(sjdd_N_df)
+```
+
+```{r fig.width=8.5, fig.height=10}
+##########################################################
+# Number of questions completed vs Number of Respondents #
+##########################################################
+
+# Return 1 for all non-NA values in each column and 0 otherwise, then store the result
+# in sjdd_N_non_df grouped by phone_number.
+sjdd_N_non_na <- sjdd_N_df %>% 
+  group_by(phone_number) %>%   
+  summarise_each(funs(sum(!is.na(.)))) 
+
+# Converting sjdd_Y_non_na to datatable.
+sjdd_N_non_na_dt <- data.table(sjdd_N_non_na)
+
+# Sum the number of 1's in each row (excluding the key column) and store the result
+# in N_response_count, then add a new column called "Phone" to the datatable using the
+# phone_number column from sjdd_N_non_na_dt.
+N_response_count <- data.table(rowSums(sjdd_N_non_na_dt[,-1])) %>%
+  mutate(Phone = sjdd_N_non_na_dt[,phone_number]) 
+
+# Converting to datatable.
+N_response_count <- data.table(N_response_count)
+
+# Creating storage dataframe.
+totalQ <- max(N_response_count$V1)
+responseCountByQ <- data.table(q = 1:totalQ, numResponses = rep(0,totalQ))
+
+# Loop over the storage dataframe.
+for(i in 1:totalQ){
+  responseCountByQ[q==i, numResponses:= N_response_count[V1>=i, .N]]
+}
+
+# Plot Number of questions responded vs Number of Respondents using geom_line.
+sjdd_g3 <- ggplot(data = responseCountByQ, aes(x = q, y = numResponses)) +
+  geom_line(color = ciBlue) +
+  geom_point()+
+  theme_bw() +
+  scale_x_continuous(breaks = seq(1,27,by = 2), limits = c(1,27)) +
+  scale_y_continuous(breaks = seq(0,130,by = 20), limits = c(0,130)) +
+  ggtitle("Drop-off Analysis for SJDD Survey \n(Respondents from Recruiter with no Internet)") +
+  xlab("Number of Questions Responded") +
+  ylab("Number of Respondents") +
+  theme(plot.title = element_text(family = "Trebuchet MS", 
+                                  color = ciOrange, 
+                                  face = "bold", 
+                                  size = 10, 
+                                  hjust = 0.5))
+```
+
+```{r fig.width=8.5, fig.height=10}
+############################################
+# Question Number vs Number of Respondents #
+############################################
+
+# Return 1 for all non-NA values in each column and 0 otherwise, then store the result
+# in sjdd_N_order_non_na grouped by phone_number.
+sjdd_N_order_non_na <- sjdd_N_df %>% 
+  group_by(phone_number) %>%   
+  summarise_each(funs(sum(!is.na(.)))) 
+
+# Sum the number of 1's in each column (excluding the key column) and store the result
+# in sirum_order_response_count, then add a new column called "Quesiton" to the datatable.
+sjdd_N_order_response_count <- data.table(colSums(sjdd_N_order_non_na[,-1])) %>%
+  mutate(Question = seq(from=1, to=27, by=1)) 
+
+# Plot Question Number against Number of Respondents using geom_line.
+sjdd_g4 <- ggplot(data = sjdd_N_order_response_count, aes(x = Question, y = V1)) +
+  geom_line(color = ciBlue) +
+  theme_bw()+
+  scale_x_continuous(breaks = seq(1,27,by = 2), limits = c(1,27)) +
+  scale_y_continuous(breaks = seq(0,125,by = 20), limits = c(0,125)) +
+  ggtitle(paste("Number of Response on each Survey Question \n(non-Recruiter Respondents with no Internet)")) +
+  xlab("Question Number") +
+  ylab("Number of Response") +
+  theme(plot.title = element_text(family = "Trebuchet MS", 
+                                  color = ciOrange, 
+                                  face = "bold", 
+                                  size = 10, 
+                                  hjust = 0.5))
+```
+
+```{r}
+#Arrange the two plots side by side.
+grid.arrange(sjdd_g3,sjdd_g4, ncol = 2)
+```
+
+```{r}
+############################################
+# Respondents NOT from Recruiters (non-RR) #
+############################################
+
+# Check to see which respondents in sjdd are NOT present in Recruited and store the result 
+# in sjdd_non_recruited.
+sjdd_non_recruited <- sjdd[which(!sjdd$phone_number %in% Recruited$phone_number)]
+```
+
+```{r}
+########################
+# non-RR with Internet #
+########################
+
+# Subset sjdd_non_recruited to get a dataframe containing columns corresponding to respondents 
+# with internet.
+sjdd_YesInt_non_df <- select(sjdd_non_recruited, 
+                       one_of(c("phone_number","lang_cat","num_child_txt","homeInternet_cat",
+                                "child_device_most_used_cat","child_device_2nd_used_cat",
+                                "child_homework_device_cat","child_device_work_cat", 
+                                "child_comm_ppl_cat","child_2nd_comm_ppl_cat",
+                                "con_big_child_cat","con_2nd_big_child_cat",
+                                "child_internet_access_home_cat","pars_inter_ppl_cat",
+                                "pars_2nd_inter_ppl_cat","pars_access_internet_home_cat",
+                                "pars_internet_work_cat","why_mobile_cat",
+                                "zipcode_txt","income_cat","affordable_housing_cat",
+                                "ppl_house_txt","gender_cat","race_cat","birth_year_txt",
+                                "future_survey_cat")))
+
+# Subset sjdd_YesInt_non_df to get a datatable containing rows corresponding to 
+# respondents with internet.
+sjdd_Y_non_df <- data.table(subset(sjdd_YesInt_non_df, sjdd_YesInt_non_df$homeInternet_cat == "Y"))
+
+# Show the dimension and first few rows of the data.
+dim(sjdd_Y_non_df)
+head(sjdd_Y_non_df)
+```
+
+```{r fig.width=8.5, fig.height=10}
+##########################################################
+# Number of questions completed vs Number of Respondents #
+##########################################################
+
+# Return 1 for all non-NA values in each column and 0 otherwise, then store the result
+# in sjdd_Y_nonRR_df grouped by phone_number.
+sjdd_Y_nonRR_na <- sjdd_Y_non_df %>% 
+  group_by(phone_number) %>%   
+  summarise_each(funs(sum(!is.na(.)))) 
+
+# Converting sjdd_Y_nonRR_na to datatable.
+sjdd_Y_nonRR_na_dt <- data.table(sjdd_Y_nonRR_na)
+
+# Sum the number of 1's in each row (excluding the key column) and store the result
+# in Y_response_count, then add a new column called "Phone" to the datatable using the
+# phone_number column from sjdd-Y_non_na_dt.
+Y_responseRR_count <- data.table(rowSums(sjdd_Y_nonRR_na_dt[,-1])) %>%
+  mutate(Phone = sjdd_Y_nonRR_na_dt[,phone_number]) 
+
+# Converting to datatable.
+Y_responseRR_count <- data.table(Y_responseRR_count)
+
+# Creating storage dataframe.
+totalQ <- max(Y_responseRR_count$V1)
+responseCountByQ <- data.table(q = 1:totalQ, numResponses = rep(0,totalQ))
+
+# Loop over the storage dataframe.
+for(i in 1:totalQ){
+  responseCountByQ[q==i, numResponses:= Y_responseRR_count[V1>=i, .N]]
+}
+
+# Plot Number of questions responded vs Number of Respondents using geom_line.
+sjdd_g5 <- ggplot(data = responseCountByQ, aes(x = q, y = numResponses)) +
+  geom_line(color = ciBlue) +
+  geom_point()+
+  theme_bw() +
+  scale_x_continuous(breaks = seq(1,24,by = 2), limits = c(1,24)) +
+  scale_y_continuous(breaks = seq(0,300,by = 50), limits = c(0,300)) +
+  ggtitle("Drop-off Analysis for SJDD Survey \n(non-Recruiter Respondents with Internet)") +
+  xlab("Number of Questions Responded") +
+  ylab("Number of Respondents") +
+  theme(plot.title = element_text(family = "Trebuchet MS", 
+                                  color = ciOrange, 
+                                  face = "bold", 
+                                  size = 10, 
+                                  hjust = 0.5))
+```
+
+```{r fig.width=8.5, fig.height=10}
+############################################
+# Question Number vs Number of Respondents #
+############################################
+
+# Return 1 for all non-NA values in each column and 0 otherwise, then store the result
+# in sjdd_N_nonRR_order_non_na grouped by phone_number.
+sjdd_Y_nonRR_order_non_na <- sjdd_Y_non_df %>% 
+  group_by(phone_number) %>%   
+  summarise_each(funs(sum(!is.na(.)))) 
+
+# Sum the number of 1's in each column (excluding the key column) and store the result
+# in sirum_order_response_count, then add a new column called "Quesiton" to the datatable.
+sjdd_Y_nonRR_order_response_count <- data.table(colSums(sjdd_Y_nonRR_order_non_na[,-1])) %>%
+  mutate(Question = seq(from=1, to=25, by=1)) 
+
+# Plot Question Number against Number of Respondents using geom_line.
+sjdd_g6 <- ggplot(data = sjdd_Y_nonRR_order_response_count, aes(x = Question, y = V1)) +
+  geom_line(color = ciBlue) +
+  theme_bw()+
+  scale_x_continuous(breaks = seq(1,25,by = 2), limits = c(1,25)) +
+  scale_y_continuous(breaks = seq(0,300,by = 50), limits = c(0,300)) +
+  ggtitle(paste("Number of Response on each Survey Question \n(non-Recruiter Respondents with Internet)")) +
+  xlab("Question Number") +
+  ylab("Number of Response") +
+  theme(plot.title = element_text(family = "Trebuchet MS", 
+                                  color = ciOrange, 
+                                  face = "bold", 
+                                  size = 10, 
+                                  hjust = 0.5))
+```
+
+```{r}
+#Arrange the two plots side by side.
+grid.arrange(sjdd_g5,sjdd_g6, ncol = 2)
+```
+
+```{r}
+###########################
+# non-RR with no Internet #
+###########################
+
+# Subset sjdd_non_recruited to get a dataframe containing columns corresponding to respondents 
+# with no internet.
+sjdd_NoInt_non_df <- select(sjdd_non_recruited,
+                     one_of(c("phone_number","lang_cat","num_child_txt","homeInternet_cat",
+                              "benefit_internet_cat","internet_bar_top_cat",
+                              "internet_bar_2nd_top_cat","nhi_pars_inter_ppl_cat",
+                              "nhi_pars_2nd_inter_ppl_cat","internet_away_home_cat",
+                              "nhi_child_comm_ppl_cat","nhi_child_2nd_comm_ppl_cat",
+                              "child_where_access_cat","nhi_con_big_child_cat",
+                              "nhi_con_2nd_big_child_cat","trust_signup_cat",
+                              "trust_signup_2nd_cat","most_afford_internet_cat",
+                              "bar_signup_top_cat","bar_signup_2nd_cat",
+                              "nhi_zipcode_txt","nhi_income_cat","nhi_affordable_housing_cat",
+                              "nhi_ppl_house_txt","nhi_gender_cat","nhi_race_cat",
+                              "nhi_birth_year_txt","nhi_future_survey_cat")))
+
+# Subset sjdd_NoInt_non_df to get a datatable containing rows corresponding to 
+# respondents with no internet.
+sjdd_N_non_df <- data.table(subset(sjdd_NoInt_non_df, sjdd_NoInt_non_df$homeInternet_cat == "N"))
+
+# Show the dimension and first few rows of the data.
+dim(sjdd_N_non_df)
+head(sjdd_N_non_df)
+```
+
+```{r fig.width=8.5, fig.height=10}
+##########################################################
+# Number of questions completed vs Number of Respondents #
+##########################################################
+
+# Return 1 for all non-NA values in each column and 0 otherwise, then store the result
+# in sjdd_Y_nonRR_df grouped by phone_number.
+sjdd_N_nonRR_na <- sjdd_N_non_df %>% 
+  group_by(phone_number) %>%   
+  summarise_each(funs(sum(!is.na(.)))) 
+
+# Converting sjdd_N_nonRR_na to datatable.
+sjdd_N_nonRR_na_dt <- data.table(sjdd_N_nonRR_na)
+
+# Sum the number of 1's in each column (excluding the key column) and store the result
+# in N_response_count, then add a new column called "Phone" to the datatable using the
+# phone_number column from sjdd_N_non_na_dt.
+N_responseRR_count <- data.table(rowSums(sjdd_N_nonRR_na_dt[,-1])) %>%
+  mutate(Phone = sjdd_N_nonRR_na_dt[,phone_number]) 
+
+# Converting to datatable.
+N_responseRR_count <- data.table(N_responseRR_count)
+
+# Creating storage dataframe.
+totalQ <- max(N_responseRR_count$V1)
+responseCountByQ <- data.table(q = 1:totalQ, numResponses = rep(0,totalQ))
+
+# Loop over the storage dataframe.
+for(i in 1:totalQ){
+  responseCountByQ[q==i, numResponses:= N_responseRR_count[V1>=i, .N]]
+}
+
+# Plot Number of questions responded vs Number of Respondents using geom_line.
+sjdd_g7 <- ggplot(data = responseCountByQ, aes(x = q, y = numResponses)) +
+  geom_line(color = ciBlue) +
+  geom_point()+
+  theme_bw() +
+  scale_x_continuous(breaks = seq(1,27,by = 2), limits = c(1,27)) +
+  scale_y_continuous(breaks = seq(0,9,by = 1), limits = c(0,9)) +
+  ggtitle("Drop-off Analysis for SJDD Survey \n(non-Recruiter Respondents with no Internet)") +
+  xlab("Number of Questions Responded") +
+  ylab("Number of Respondents") +
+  theme(plot.title = element_text(family = "Trebuchet MS", 
+                                  color = ciOrange, 
+                                  face = "bold", 
+                                  size = 10, 
+                                  hjust = 0.5))
+```
+
+```{r fig.width=8.5, fig.height=10}
+############################################
+# Question Number vs Number of Respondents #
+############################################
+
+# Return 1 for all non-NA values in each column and 0 otherwise, then store the result
+# in sjdd_N_nonRR_order_non_na grouped by phone_number.
+sjdd_N_nonRR_order_non_na <- sjdd_N_non_df %>% 
+  group_by(phone_number) %>%   
+  summarise_each(funs(sum(!is.na(.)))) 
+
+# Sum the number of 1's in each column (excluding the key column) and store the result
+# in sirum_order_response_count, then add a new column called "Quesiton" to the datatable.
+sjdd_N_nonRR_order_response_count <- data.table(colSums(sjdd_N_nonRR_order_non_na[,-1])) %>%
+  mutate(Question = seq(from=1, to=27, by=1)) 
+
+# Plot Question Number against Number of Respondents using geom_line.
+sjdd_g8 <- ggplot(data = sjdd_N_nonRR_order_response_count, aes(x = Question, y = V1)) +
+  geom_line(color = ciBlue) +
+  theme_bw()+
+  scale_x_continuous(breaks = seq(1,27,by = 2), limits = c(1,27)) +
+  scale_y_continuous(breaks = seq(0,9,by = 1), limits = c(0,9)) +
+  ggtitle(paste("Number of Response on each Survey Question \n(non-Recruiter Respondents with no Internet)")) +
+  xlab("Question Number") +
+  ylab("Number of Response") +
+  theme(plot.title = element_text(family = "Trebuchet MS", 
+                                  color = ciOrange, 
+                                  face = "bold", 
+                                  size = 10, 
+                                  hjust = 0.5))
+```
+
+```{r}
+#Arrange the two plots side by side.
+grid.arrange(sjdd_g7,sjdd_g8, ncol = 2)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+###############
+# Sirum Panel #
+###############
+
+# Import the sirum dataset.
+sirum <- read.csv("Sirum.csv")
+
+# Substitute "" and NULL entries in the dataset with "NA"
+sirum[sirum==""] <- NA
+sirum[sirum=="NULL"] <- NA
+
+# Convert dataframe to datatable for easy processing.
+sirum_dt <- data.table(sirum)
+
+# Change variable name "URN" to "phone_number".
+setnames(sirum_dt, "URN", "phone_number")
+
+# Remove column "Contact.UUID" and "SentSurvey" from the datatable.
+sirum_dt[, c("Contact.UUID","SentSurvey"):= NULL]
+
+# Show the dimension and first few rows of the data.
+dim(sirum_dt)
+head(sirum_dt)
+```
+
+```{r echo=FALSE, warning=FALSE, fig.width=8.5, fig.height=10}
+############################################
+# Question Number vs Number of Respondents #
+############################################
+
+# Return 1 for all non-NA values in each column and 0 otherwise, then store the result
+# in sirum_non_na grouped by phone_number.
+sirum_non_na <- sirum_dt %>% 
+  group_by(phone_number) %>%   
+  summarise_each(funs(sum(!is.na(.)))) 
+
+# Converting sirum_non_na to datatable.
+sirum_non_na_dt <- data.table(sirum_non_na)
+
+# Sum the number of 1's in each row (excluding the key column) and store the result
+# in sirum_response_count, then add a new column called "Quesiton" to the datatable.
+sirum_response_count <- data.table(rowSums(sirum_non_na_dt[,-1])) %>%
+  mutate(Phone = sirum_non_na_dt[,phone_number]) 
+
+# Converting to datatable.
+sirum_response_count <- data.table(sirum_response_count)
+
+# Creating storage dataframe.
+totalQ <- max(sirum_response_count$V1)
+responseCountByQ <- data.table(q = 1:totalQ, numResponses = rep(0,totalQ))
+
+# Loop over the storage dataframe.
+for(i in 1:totalQ){
+  responseCountByQ[q==i, numResponses:= sirum_response_count[V1>=i, .N]]
+}
+
+# Plot Number of questions responded vs Number of Respondents using geom_line.
+sirum_g1 <- ggplot(data = responseCountByQ, aes(x = q, y = numResponses)) +
+  geom_line(color = ciBlue) +
+  geom_point()+
+  theme_bw() +
+  scale_x_continuous(breaks = seq(1,19,by = 2), limits = c(1,19)) +
+  scale_y_continuous(breaks = seq(0,200,by = 50), limits = c(0,200)) +
+  ggtitle("Drop-off Analysis for Sirum Survey") +
+  xlab("Number of Questions Responded") +
+  ylab("Number of Respondents") +
+  theme(plot.title = element_text(family = "Trebuchet MS", 
+                                  color = ciOrange, 
+                                  face = "bold", 
+                                  size = 12, 
+                                  hjust = 0.5))
+```
+
+```{r  fig.width=8.5, fig.height=10}
+############################################
+# Question Number vs Number of Respondents #
+############################################
+
+# Return 1 for all non-NA values in each column and 0 otherwise, then store the result
+# in sirum_order_non_na grouped by phone_number.
+sirum_order_non_na <- sirum_dt %>% 
+  group_by(phone_number) %>%   
+  summarise_each(funs(sum(!is.na(.)))) 
+
+# Sum the number of 1's in each column (excluding the key column) and store the result
+# in sirum_order_response_count, then add a new column called "Quesiton" to the datatable.
+sirum_order_response_count <- data.table(colSums(sirum_order_non_na[,-1])) %>%
+  mutate(Question = seq(from=1, to=19, by=1)) 
+
+# Plot Question Number against Number of Respondents using geom_line.
+sirum_g2 <- ggplot(data = sirum_order_response_count, aes(x = Question, y = V1)) +
+  geom_line(color = ciBlue) +
+  theme_bw()+
+  scale_x_continuous(breaks = seq(1,19,by = 2), limits = c(1,19)) +
+  scale_y_continuous(breaks = seq(0,230,by = 50), limits = c(0,230)) +
+  ggtitle(paste("Number of Response on each Survey Question \n(Sirum)")) +
+  xlab("Question Number") +
+  ylab("Number of Response") +
+  theme(plot.title = element_text(family = "Trebuchet MS", 
+                                  color = ciOrange, 
+                                  face = "bold", 
+                                  size = 10, 
+                                  hjust = 0.5))
+```
+
+```{r warning=FALSE}
+#Arrange the two plots side by side.
+grid.arrange(sirum_g1, sirum_g2, ncol = 2)
+```
+
+```{r}
+#############
+# ECN Panel #
+#############
+
+# Import the ecn dataset.
+ecn <- read.csv("Pre-ECN_Flow.csv")
+
+# Substitute "" and NULL entries in the dataset with "NA"
+ecn[ecn==""] <- NA
+ecn[ecn=="NULL"] <- NA
+
+# Convert dataframe to datatable for easy processing.
+ecn_dt <- data.table(ecn)
+
+# Change variable name "URN" to "phone_number".
+setnames(ecn_dt, "URN", "phone_number")
+
+# Remove column "Contact.UUID" and "SentSurvey" from the datatable.
+ecn_dt[, c("X","X.1","X.2","X.3"):= NULL]
+
+# Show the dimension and first few rows of the data.
+dim(ecn_dt)
+head(ecn_dt)
+```
+
+```{r warning=FALSE, fig.width=8.5, fig.height=10}
+############################################
+# Question Number vs Number of Respondents #
+############################################
+
+# Return 1 for all non-NA values in each column and 0 otherwise, then store the result
+# in sirum_non_na grouped by phone_number.
+ecn_non_na <- ecn_dt %>% 
+  group_by(phone_number) %>%   
+  summarise_each(funs(sum(!is.na(.)))) 
+
+# Converting sirum_non_na to datatable.
+ecn_non_na_dt <- data.table(ecn_non_na)
+
+# Sum the number of 1's in each row (excluding the key column) and store the result
+# in ecn_response_count, then add a new column called "Quesiton" to the datatable.
+ecn_response_count <- data.table(rowSums(ecn_non_na_dt[,-1])) %>%
+  mutate(Phone = ecn_non_na_dt[,phone_number])
+
+# Converting to datatable.
+ecn_response_count <- data.table(ecn_response_count)
+
+# Creating storage dataframe.
+totalQ <- max(ecn_response_count$V1)
+responseCountByQ <- data.table(q = 1:totalQ, numResponses = rep(0,totalQ))
+
+# Loop over the storage dataframe.
+for(i in 1:totalQ){
+  responseCountByQ[q==i, numResponses:= ecn_response_count[V1>=i, .N]]
+}
+
+# Plot Number of questions responded vs Number of Respondents using geom_line.
+ecn_g1 <- ggplot(data = responseCountByQ, aes(x = q, y = numResponses)) +
+  geom_line(color = ciBlue) +
+  geom_point()+
+  theme_bw() +
+  scale_x_continuous(breaks = seq(1,32,by = 2), limits = c(1,32)) +
+  scale_y_continuous(breaks = seq(0,400,by = 50), limits = c(0,400)) +
+  ggtitle("Drop-off Analysis for ECN Survey") +
+  xlab("Number of Questions Responded") +
+  ylab("Number of Respondents") +
+  theme(plot.title = element_text(family = "Trebuchet MS", 
+                                  color = ciOrange, 
+                                  face = "bold", 
+                                  size = 12, 
+                                  hjust = 0.5))
+```
+
+```{r fig.width=8.5, fig.height=10}
+############################################
+# Question Number vs Number of Respondents #
+############################################
+
+# Return 1 for all non-NA values in each column and 0 otherwise, then store the result
+# in ecn_non_na grouped by phone_number.
+ecn_order_non_na <- ecn_dt %>% 
+  group_by(phone_number) %>%   
+  summarise_each(funs(sum(!is.na(.)))) 
+
+# Sum the number of 1's in each column (excluding the key column) and store the result
+# in ecn_order_response_count, then add a new column called "Quesiton" to the datatable.
+ecn_order_response_count <- data.table(colSums(ecn_order_non_na[,-1])) %>%
+  mutate(Question = seq(from=1, to=36, by=1)) 
+
+# Plot Question Number against Number of Respondents using geom_line.
+ecn_g2 <- ggplot(data = ecn_order_response_count, aes(x = Question, y = V1)) +
+  geom_line(color = ciBlue) +
+  theme_bw()+
+  scale_x_continuous(breaks = seq(1,36,by = 2), limits = c(1,36)) +
+  scale_y_continuous(breaks = seq(0,400,by = 50), limits = c(0,400)) +
+  ggtitle(paste("Number of Response on each Survey Question \n(ECN)")) +
+  xlab("Question Number") +
+  ylab("Number of Response") +
+  theme(plot.title = element_text(family = "Trebuchet MS", 
+                                  color = ciOrange, 
+                                  face = "bold", 
+                                  size = 10, 
+                                  hjust = 0.5))
+```
+
+```{r}
+#Arrange the two plots side by side.
+grid.arrange(ecn_g1, ecn_g2, ncol = 2)
+```
+
+```{r}
+##############
+# EITC Panel #
+##############
+
+# Import the eitc dataset.
+eitc <- read.csv("EITC_Flow.csv")
+
+# Substitute "" and NULL entries in the dataset with "NA"
+eitc[eitc==""] <- NA
+eitc[eitc=="NULL"] <- NA
+
+# Convert dataframe to datatable for easy processing.
+eitc_dt <- data.table(eitc)
+
+# Change variable name "URN" to "phone_number".
+setnames(eitc_dt, "URN", "phone_number")
+
+# Show the dimension and first few rows of the data.
+dim(eitc_dt)
+head(eitc_dt)
+```
+
+```{r fig.width=8.5, fig.height=10}
+############################################
+# Question Number vs Number of Respondents #
+############################################
+
+# Return 1 for all non-NA values in each column and 0 otherwise, then store the result
+# in eitc_non_na grouped by phone_number.
+eitc_non_na <- eitc_dt %>% 
+  group_by(phone_number) %>%   
+  summarise_each(funs(sum(!is.na(.)))) 
+
+# Converting eitc_non_na to datatable.
+eitc_non_na_dt <- data.table(eitc_non_na)
+
+# Sum the number of 1's in each row (excluding the key column) and store the result
+# in eitc_response_count, then add a new column called "Quesiton" to the datatable.
+eitc_response_count <- data.table(rowSums(eitc_non_na_dt[,-1])) %>%
+  mutate(Phone = eitc_non_na_dt[,phone_number])
+
+# Converting to datatable.
+eitc_response_count <- data.table(eitc_response_count)
+
+# Creating storage dataframe.
+totalQ <- max(eitc_response_count$V1)
+responseCountByQ <- data.table(q = 1:totalQ, numResponses = rep(0,totalQ))
+
+# Loop over the storage dataframe.
+for(i in 1:totalQ){
+  responseCountByQ[q==i, numResponses:= eitc_response_count[V1>=i, .N]]
+}
+
+# Plot Number of questions responded vs Number of Respondents using geom_line.
+eitc_g1 <- ggplot(data = responseCountByQ, aes(x = q, y = numResponses)) +
+  geom_line(color = ciBlue) +
+  geom_point()+
+  theme_bw() +
+  scale_x_continuous(breaks = seq(1,24,by = 2), limits = c(1,24)) +
+  scale_y_continuous(breaks = seq(0,475,by = 50), limits = c(0,475)) +
+  ggtitle("Drop-off Analysis for EITC Survey") +
+  xlab("Number of Questions Responded") +
+  ylab("Number of Respondents") +
+  theme(plot.title = element_text(family = "Trebuchet MS", 
+                                  color = ciOrange, 
+                                  face = "bold", 
+                                  size = 10, 
+                                  hjust = 0.5))
+```
+
+```{r fig.width=8.5, fig.height=10}
+############################################
+# Question Number vs Number of Respondents #
+############################################
+
+# Return 1 for all non-NA values in each column and 0 otherwise, then store the result
+# in eitc_order_non_na grouped by phone_number.
+eitc_order_non_na <- eitc_dt %>% 
+  group_by(phone_number) %>%   
+  summarise_each(funs(sum(!is.na(.)))) 
+
+# Sum the number of 1's in each column (excluding the key column) and store the result
+# in eitc_response_count, then add a new column called "Quesiton" to the datatable.
+eitc_order_response_count <- data.table(colSums(eitc_order_non_na[,-1])) %>%
+  mutate(Question = seq(from=1, to=55, by=1)) 
+
+# Plot Question Number against Number of Respondents using geom_line.
+eitc_g2 <- ggplot(data = eitc_order_response_count, aes(x = Question, y = V1)) +
+  geom_line(color = ciBlue) +
+  theme_bw()+
+  scale_x_continuous(breaks = seq(1,55,by = 5), limits = c(1,55)) +
+  scale_y_continuous(breaks = seq(0,460,by = 50), limits = c(0,460)) +
+  ggtitle(paste("Number of Response on each Survey Question \n(EITC)")) +
+  xlab("Question Number") +
+  ylab("Number of Response") +
+  theme(plot.title = element_text(family = "Trebuchet MS", 
+                                  color = ciOrange, 
+                                  face = "bold", 
+                                  size = 10, 
+                                  hjust = 0.5))
+```
+
+```{r}
+#Arrange the two plots side by side.
+grid.arrange(eitc_g1, eitc_g2, ncol = 2)
+```
+
+```{r echo=FALSE}
+#findLastCol <- function(sjdd_Y_df){
+#  lastCol = ""
+#  for(i in col(sjdd_Y_df)){
+#    naVal <- sjdd_Y_df[, i, with=F] %>% is.na()
+#   if(!naVal){
+#      lastCol <- i
+#    }
+#  }
+#  return(lastCol)
+#}
+
+#sjdd_Ystop_df <- sjdd_Y_df[, findLastCol(.SD), by=phone_number] %>%
+#  group_by(V1) %>%
+#  summarise(n = n()) 
+```
+
