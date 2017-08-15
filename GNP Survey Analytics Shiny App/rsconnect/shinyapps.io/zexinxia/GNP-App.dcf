@@ -1,0 +1,10 @@
+name: GNP-App
+title: GNP Survey Analytics
+account: zexinxia
+server: shinyapps.io
+appId: 204345
+bundleId: 938329
+url: https://zexinxia.shinyapps.io/GNP-App/
+when: 1502526001.50625
+asMultiple: FALSE
+asStatic: FALSE
